@@ -39,11 +39,10 @@ MEME_FILES: List[Path] = []
 CURRENT_INDEX: int = 0
 ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 RECENT_MEMES_MAX = 5
-recent_memes: deque = deque(maxlen=RECENT_MEMES_MAX)
+recent_memes: deque = deque(maxlen=RECENT_MEMES_MAX)  # Fixed typo here
 post_interval_minutes = 10
 job = None
 
-# Likes: { filename: { user_id: emoji } }
 LIKE_TRACKER: Dict[str, Dict[int, str]] = defaultdict(dict)
 LIKES_FILE = MEME_DIR / "likes.json"
 
@@ -82,7 +81,7 @@ def load_likes() -> None:
         try:
             with open(LIKES_FILE, "r") as f:
                 data = json.load(f)
-                LIKE_TRACKER = defaultdict(dict, {k: {int(uk): uv for uk, uv in v.items()} for k, v in data.items()})
+                LIKE_TRACKER = defaultdict(dict, {k: {int(user): v for user, v in val.items()} for k, val in data.items()})
         except Exception as e:
             logger.warning(f"Failed to load likes, starting fresh: {e}")
             LIKE_TRACKER = defaultdict(dict)
@@ -196,15 +195,12 @@ async def handle_button_press(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     user_id = query.from_user.id
     if user_id in LIKE_TRACKER[filename]:
-        # User already liked
         return
     LIKE_TRACKER[filename][user_id] = emoji
     save_likes()
-
     likes_text = format_likes(LIKE_TRACKER[filename])
     caption_base = query.message.caption.split("\n")[0] if query.message.caption else ""
     new_caption = f"{caption_base}\n\n👍 {likes_text}" if likes_text else caption_base
-
     try:
         await query.edit_message_caption(caption=new_caption, reply_markup=create_keyboard(filename))
     except Exception:
@@ -214,7 +210,7 @@ async def handle_button_press(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def scheduled_post(context: ContextTypes.DEFAULT_TYPE) -> None:
     global GROUP_CHAT_ID
     if GROUP_CHAT_ID is None:
-        logger.warning("Group chat ID not set, skipping post.")
+        logger.warning("Group chat ID not set, skipping scheduled post.")
         return
     await send_meme(GROUP_CHAT_ID, context)
 
@@ -224,35 +220,35 @@ async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     chat_id = update.effective_chat.id
 
     member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
-    if member.status not in ['administrator', 'creator']:
+    if member.status not in ('administrator', 'creator'):
         await context.bot.send_message(chat_id, "❌ Only admins can set the interval.")
         return
+
     if not context.args or not context.args[0].isdigit():
         await context.bot.send_message(chat_id, "Usage: /setinterval <minutes>")
         return
 
     minutes = int(context.args[0])
-    if minutes < 1 or minutes > 60:
+    if not 1 <= minutes <= 60:
         await context.bot.send_message(chat_id, "Interval must be between 1 and 60 minutes.")
         return
 
     post_interval_minutes = minutes
     if job:
         job.schedule_removal()
-    job = context.job_queue.run_repeating(scheduled_post, interval=post_interval_minutes*60)
-    await context.bot.send_message(chat_id, f"Posting interval set to {minutes} minutes.")
+    job = context.job_queue.run_repeating(scheduled_post, interval=post_interval_minutes * 60)
+    await context.bot.send_message(chat_id, f"Posting interval set to {post_interval_minutes} minutes.")
 
 
 async def add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
-    if update.message.reply_to_message is None:
-        await context.bot.send_message(chat_id, "Reply to a photo or document to add as meme.")
+    if not update.message.reply_to_message:
+        await context.bot.send_message(chat_id, "Reply to a photo or document with /add to add a meme.")
         return
-
     replied = update.message.reply_to_message
+
     file = None
     filename = None
-
     if replied.photo:
         file = await replied.photo[-1].get_file()
         filename = f"{file.file_id}.jpg"
@@ -260,51 +256,56 @@ async def add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         file = await replied.document.get_file()
         filename = replied.document.file_name
     else:
-        await context.bot.send_message(chat_id, "Unsupported file type.")
+        await context.bot.send_message(chat_id, "Unsupported file type. Please reply with an image.")
         return
 
     save_path = MEME_DIR / filename
     await file.download_to_drive(str(save_path))
     load_memes()
-    await context.bot.send_message(chat_id, "✅ Meme added successfully.")
+    await context.bot.send_message(chat_id, "✅ Meme added!")
 
 
 async def detect_and_save_group_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     global GROUP_CHAT_ID, job
     chat = update.effective_chat
-    if GROUP_CHAT_ID is None and chat.type in ['group', 'supergroup']:
+    if GROUP_CHAT_ID is None and chat.type in ('group', 'supergroup'):
         GROUP_CHAT_ID = chat.id
         save_group_id(GROUP_CHAT_ID)
-        logger.info(f"Saved group ID: {GROUP_CHAT_ID}")
+        logger.info(f"Saved group chat ID: {GROUP_CHAT_ID}")
+
         if job is None:
-            job = context.job_queue.run_repeating(scheduled_post, interval=post_interval_minutes*60)
-            logger.info("Started scheduled post job upon group ID detection.")
+            job = context.job_queue.run_repeating(
+                scheduled_post,
+                interval=post_interval_minutes * 60,
+                first=5
+            )
+            logger.info("Scheduled posting job started after group ID detection.")
 
 
 async def get_group_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat
-    await context.bot.send_message(chat.id, f"Group chat ID is {chat.id}")
+    await context.bot.send_message(chat.id, f"Group chat ID: {chat.id}")
     global GROUP_CHAT_ID
-    if GROUP_CHAT_ID is None and chat.type in ['group', 'supergroup']:
+    if GROUP_CHAT_ID is None and chat.type in ('group', 'supergroup'):
         GROUP_CHAT_ID = chat.id
         save_group_id(GROUP_CHAT_ID)
-        logger.info(f"Saved group ID: {GROUP_CHAT_ID}")
+        logger.info(f"Saved group chat ID: {GROUP_CHAT_ID}")
 
 
 async def init_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat
-    if chat.type not in ['group', 'supergroup']:
-        await context.bot.send_message(chat.id, "This command can only be used in groups.")
+    if chat.type not in ('group', 'supergroup'):
+        await context.bot.send_message(chat.id, "This command can only be used in a group.")
         return
     global GROUP_CHAT_ID
     GROUP_CHAT_ID = chat.id
     save_group_id(GROUP_CHAT_ID)
-    await context.bot.send_message(chat.id, f"Group initialized with ID {GROUP_CHAT_ID}")
-    logger.info(f"Group ID initialized: {GROUP_CHAT_ID}")
+    await context.bot.send_message(chat.id, f"Group chat ID initialized: {GROUP_CHAT_ID}")
+    logger.info(f"Group chat ID manually initialized: {GROUP_CHAT_ID}")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await context.bot.send_message(update.effective_chat.id, "Bot is online and ready!")
+    await context.bot.send_message(update.effective_chat.id, "🤖 Jin_Bot_9000 is online and ready!")
 
 
 async def webhook_handler(request: web.Request) -> web.Response:
@@ -314,7 +315,7 @@ async def webhook_handler(request: web.Request) -> web.Response:
         update = Update.de_json(data, app.bot)
         await app.process_update(update)
     except Exception as e:
-        logger.error(f"Error processing update: {e}")
+        logger.error(f"Error processing webhook update: {e}")
     return web.Response(text="OK")
 
 
@@ -325,7 +326,7 @@ async def health_check(request: web.Request) -> web.Response:
 async def send_meme_http(request: web.Request) -> web.Response:
     app = request.app['bot_app']
     if GROUP_CHAT_ID is None:
-        return web.Response(status=400, text="Group ID not set")
+        return web.Response(status=400, text="Group chat ID not set")
     await send_meme(GROUP_CHAT_ID, None)
     return web.Response(text="Sent meme.")
 
@@ -334,7 +335,6 @@ async def main() -> None:
     global job
     load_memes()
     load_likes()
-
     global GROUP_CHAT_ID
     if GROUP_CHAT_ID is None:
         GROUP_CHAT_ID = load_group_id()
@@ -347,12 +347,12 @@ async def main() -> None:
     app.add_handler(CommandHandler("setinterval", set_interval))
     app.add_handler(CommandHandler("add", add_meme))
     app.add_handler(CommandHandler("getgroupid", get_group_id))
-    app.add_handler(CommandHandler("init_group", init_group))
+    app.add_handler(CommandHandler("initgroup", init_group))
     app.add_handler(CallbackQueryHandler(handle_button_press))
 
     if GROUP_CHAT_ID is not None:
         job = app.job_queue.run_repeating(scheduled_post, interval=post_interval_minutes*60)
-        logger.info("Scheduled posting job started")
+        logger.info("Started scheduled posting job")
 
     webapp = web.Application()
     webapp.add_routes([
