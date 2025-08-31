@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 import os
 
-BOT_TOKEN: str = "8480173527:AAEN4mrOOp8PilajpOKwCWWmP93MpyXm_h0"
+BOT_TOKEN: str = "TELEGRAM_TOKEN"
 GROUP_CHAT_ID: int = -4897881939
 MEME_DIR: Path = Path("memes")
 MEME_FILES: List[Path] = []
