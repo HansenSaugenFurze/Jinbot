@@ -93,6 +93,7 @@ def save_group_id(group_id: int) -> None:
     try:
         with open(GROUP_ID_FILE, "w") as f:
             f.write(str(group_id))
+            logger.info(f"Saved group chat ID {group_id} to file.")
     except Exception as e:
         logger.error(f"❌ Error saving group chat ID: {e}")
 
@@ -100,8 +101,7 @@ def save_group_id(group_id: int) -> None:
 def load_group_id() -> Optional[int]:
     if GROUP_ID_FILE.exists():
         try:
-            with open(GROUP_ID_FILE, "r") as f:
-                return int(f.read().strip())
+            return int(GROUP_ID_FILE.read_text().strip())
         except Exception as e:
             logger.warning(f"⚠️ Error loading group chat ID: {e}")
             return None
@@ -190,6 +190,8 @@ async def send_meme(
 
 async def handle_button_press(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
+    if not query:
+        return
     await query.answer()
     user_id = query.from_user.id
     data = query.data
@@ -314,6 +316,19 @@ async def get_group_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.info(f"Group chat ID set to {GROUP_CHAT_ID} by /getgroupid command.")
 
 
+async def init_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manually initialize and save the current group's chat ID."""
+    global GROUP_CHAT_ID
+    chat = update.effective_chat
+    if chat.type not in ("group", "supergroup"):
+        await update.message.reply_text("This command can only be used in a group.")
+        return
+    GROUP_CHAT_ID = chat.id
+    save_group_id(GROUP_CHAT_ID)
+    await update.message.reply_text(f"✅ Group chat ID initialized and saved: {GROUP_CHAT_ID}")
+    logger.info(f"Group chat ID manually initialized to {GROUP_CHAT_ID} via /initgroup.")
+
+
 async def send_startup_message(app):
     global GROUP_CHAT_ID
     if GROUP_CHAT_ID is None:
@@ -330,6 +345,17 @@ async def handle_http_request(request: web.Request) -> web.Response:
     return web.Response(text="Jin_Bot_9000 is running")
 
 
+async def handle_send_meme_request(request: web.Request) -> web.Response:
+    """HTTP route to trigger sending a meme to the saved group."""
+    global GROUP_CHAT_ID
+    app = request.app["telegram_app"]
+    if GROUP_CHAT_ID is None:
+        logger.warning("Group chat ID not set; cannot send meme via HTTP request.")
+        return web.Response(status=400, text="Group chat ID not set.")
+    await send_meme(GROUP_CHAT_ID, app)
+    return web.Response(text="Meme sent to group.")
+
+
 async def main_async():
     global job, GROUP_CHAT_ID
     logger.info("🤖 Starting Jin_Bot_9000...")
@@ -340,6 +366,9 @@ async def main_async():
         GROUP_CHAT_ID = load_group_id()
     if GROUP_CHAT_ID:
         logger.info(f"Loaded saved group chat ID: {GROUP_CHAT_ID}")
+    else:
+        logger.info("No saved group chat ID found.")
+
     if not MEME_FILES:
         logger.warning("⚠️ No meme files found! Add some images to the 'memes' folder.")
 
@@ -350,20 +379,26 @@ async def main_async():
     app_bot.add_handler(CommandHandler("setinterval", set_interval))
     app_bot.add_handler(CommandHandler("add", add_meme))
     app_bot.add_handler(CommandHandler("getgroupid", get_group_id))
+    app_bot.add_handler(CommandHandler("initgroup", init_group))
     app_bot.add_handler(CallbackQueryHandler(handle_button_press))
 
     job = app_bot.job_queue.run_repeating(scheduled_meme_post, interval=post_interval_minutes * 60, first=10)
 
     # Setup aiohttp webserver for Render port binding
     app_web = web.Application()
-    app_web.add_routes([web.get('/', handle_http_request)])
-
+    app_web.add_routes([
+        web.get('/', handle_http_request),
+        web.get('/send_meme', handle_send_meme_request)
+    ])
     port = int(os.getenv("PORT", 10000))
     runner = web.AppRunner(app_web)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     logger.info(f"✅ HTTP server started on port {port}")
+
+    # Store bot app in web app for HTTP route access
+    app_web["telegram_app"] = app_bot
 
     await app_bot.initialize()
     await app_bot.start()
