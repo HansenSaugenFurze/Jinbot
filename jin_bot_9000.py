@@ -356,25 +356,31 @@ async def handle_send_meme_request(request: web.Request) -> web.Response:
     return web.Response(text="Meme sent to group.")
 
 
+# Debug handler to log every received update (very verbose)
+async def log_updates(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info(f"Update received: {update}")
+
+
 async def main_async():
     global job, GROUP_CHAT_ID
     logger.info("🤖 Starting Jin_Bot_9000...")
     load_memes()
     load_likes()
-    # Load group chat ID from file if persisted and not set by environment
     if not GROUP_CHAT_ID:
         GROUP_CHAT_ID = load_group_id()
     if GROUP_CHAT_ID:
         logger.info(f"Loaded saved group chat ID: {GROUP_CHAT_ID}")
     else:
         logger.info("No saved group chat ID found.")
-
     if not MEME_FILES:
         logger.warning("⚠️ No meme files found! Add some images to the 'memes' folder.")
 
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Register handlers
+    # Add debugging handler for all messages to log them (can be removed later)
+    app_bot.add_handler(MessageHandler(filters.ALL, log_updates), group=-1)
+
+    # Command and message handlers
     app_bot.add_handler(MessageHandler(filters.ChatType.GROUP | filters.ChatType.SUPERGROUP, detect_and_save_group_id), group=0)
     app_bot.add_handler(CommandHandler("setinterval", set_interval))
     app_bot.add_handler(CommandHandler("add", add_meme))
@@ -384,11 +390,10 @@ async def main_async():
 
     job = app_bot.job_queue.run_repeating(scheduled_meme_post, interval=post_interval_minutes * 60, first=10)
 
-    # Setup aiohttp webserver for Render port binding
     app_web = web.Application()
     app_web.add_routes([
         web.get('/', handle_http_request),
-        web.get('/send_meme', handle_send_meme_request)
+        web.get('/send_meme', handle_send_meme_request),
     ])
     port = int(os.getenv("PORT", 10000))
     runner = web.AppRunner(app_web)
@@ -397,14 +402,12 @@ async def main_async():
     await site.start()
     logger.info(f"✅ HTTP server started on port {port}")
 
-    # Store bot app in web app for HTTP route access
     app_web["telegram_app"] = app_bot
 
     await app_bot.initialize()
     await app_bot.start()
     logger.info("✅ Telegram bot started")
 
-    # Send startup message on launch
     await send_startup_message(app_bot)
 
     try:
