@@ -234,23 +234,23 @@ async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         member = await context.bot.get_chat_member(chat_id, user.id)
     except Exception:
-        await update.effective_message.reply_text("Failed to check admin status.")
+        await context.bot.send_message(chat_id=chat_id, text="Failed to check admin status.")
         return
     if member.status not in ('administrator', 'creator'):
-        await update.effective_message.reply_text("❌ Only group admins can set the posting interval.")
+        await context.bot.send_message(chat_id=chat_id, text="❌ Only group admins can set the posting interval.")
         return
     if not context.args or not context.args[0].isdigit():
-        await update.effective_message.reply_text("Usage: /setinterval <minutes>\nExample: /setinterval 15")
+        await context.bot.send_message(chat_id=chat_id, text="Usage: /setinterval <minutes>\nExample: /setinterval 15")
         return
     minutes = int(context.args[0])
     if minutes < 1 or minutes > 60:
-        await update.effective_message.reply_text("Please choose an interval between 1 and 60 minutes.")
+        await context.bot.send_message(chat_id=chat_id, text="Please choose an interval between 1 and 60 minutes.")
         return
     post_interval_minutes = minutes
     if job:
         job.schedule_removal()
     job = context.job_queue.run_repeating(scheduled_meme_post, interval=post_interval_minutes * 60, first=5)
-    await update.effective_message.reply_text(f"✅ Posting interval updated to every {post_interval_minutes} minutes.")
+    await context.bot.send_message(chat_id=chat_id, text=f"✅ Posting interval updated to every {post_interval_minutes} minutes.")
 
 
 async def add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -265,13 +265,13 @@ async def add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
     except Exception:
-        await message.reply_text("Failed to verify admin status.")
+        await context.bot.send_message(chat_id=chat.id, text="Failed to verify admin status.")
         return
     if member.status not in ('administrator', 'creator'):
-        await message.reply_text("❌ Only group admins can add memes.")
+        await context.bot.send_message(chat_id=chat.id, text="❌ Only group admins can add memes.")
         return
     if not message.reply_to_message:
-        await message.reply_text("Please reply to a meme photo or document message with /add to add it.")
+        await context.bot.send_message(chat_id=chat.id, text="Please reply to a meme photo or document message with /add to add it.")
         return
     replied = message.reply_to_message
     file = None
@@ -285,15 +285,15 @@ async def add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             file = await replied.document.get_file()
             file_name = replied.document.file_name
         else:
-            await message.reply_text("Unsupported file type. Please add an image file.")
+            await context.bot.send_message(chat_id=chat.id, text="Unsupported file type. Please add an image file.")
             return
     else:
-        await message.reply_text("Reply to a photo or supported document to add as a meme.")
+        await context.bot.send_message(chat_id=chat.id, text="Reply to a photo or supported document to add as a meme.")
         return
     save_path = MEME_DIR / file_name
     await file.download_to_drive(str(save_path))
     load_memes()
-    await message.reply_text("✅ Added successfully!")
+    await context.bot.send_message(chat_id=chat.id, text="✅ Added successfully!")
 
 
 async def detect_and_save_group_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -307,7 +307,7 @@ async def detect_and_save_group_id(update: Update, context: ContextTypes.DEFAULT
 
 async def get_group_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat
-    await update.message.reply_text(f"This chat's ID is: {chat.id}")
+    await context.bot.send_message(chat_id=chat.id, text=f"This chat's ID is: {chat.id}")
     global GROUP_CHAT_ID
     if GROUP_CHAT_ID is None and chat.type in ('group', 'supergroup'):
         GROUP_CHAT_ID = chat.id
@@ -319,11 +319,11 @@ async def init_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     global GROUP_CHAT_ID
     chat = update.effective_chat
     if chat.type not in ("group", "supergroup"):
-        await update.message.reply_text("This command can only be used in a group.")
+        await context.bot.send_message(chat_id=chat.id, text="This command can only be used in a group.")
         return
     GROUP_CHAT_ID = chat.id
     save_group_id(GROUP_CHAT_ID)
-    await update.message.reply_text(f"✅ Group chat ID initialized and saved: {GROUP_CHAT_ID}")
+    await context.bot.send_message(chat_id=chat.id, text=f"✅ Group chat ID initialized and saved: {GROUP_CHAT_ID}")
     logger.info(f"Group chat ID manually initialized to {GROUP_CHAT_ID} via /initgroup.")
 
 
@@ -359,7 +359,10 @@ async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /start in chat {update.effective_chat.id} ({update.effective_chat.type})")
-    await update.message.reply_text("🤖 Jin_Bot_9000 is alive and listening!")
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="🤖 Jin_Bot_9000 is alive and listening!"
+    )
 
 
 async def main_async():
