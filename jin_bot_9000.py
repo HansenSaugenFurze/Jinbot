@@ -161,9 +161,7 @@ async def send_meme(
         return
     meme_filename = meme_path.name
     likes_summary = format_likes(LIKE_TRACKER[meme_filename])
-    caption = ""
-    if likes_summary:
-        caption = f"👍 Likes: {likes_summary}"
+    caption = f"👍 Likes: {likes_summary}" if likes_summary else ""
     try:
         with open(meme_path, "rb") as file:
             await context.bot.send_photo(
@@ -294,12 +292,21 @@ async def add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def detect_and_save_group_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    global GROUP_CHAT_ID
+    global GROUP_CHAT_ID, job
     chat = update.effective_chat
     if GROUP_CHAT_ID is None and chat and chat.type in ('group', 'supergroup'):
         GROUP_CHAT_ID = chat.id
         save_group_id(GROUP_CHAT_ID)
         logger.info(f"Detected and saved group chat ID: {GROUP_CHAT_ID}")
+
+        # Start scheduled meme post job if it is not already running
+        if job is None:
+            job = context.job_queue.run_repeating(
+                scheduled_meme_post,
+                interval=post_interval_minutes * 60,
+                first=5
+            )
+            logger.info("Scheduled meme post job started after group ID detection.")
 
 
 async def get_group_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -389,7 +396,15 @@ async def main_async():
     app_bot.add_handler(CommandHandler("initgroup", init_group))
     app_bot.add_handler(CallbackQueryHandler(handle_button_press))
 
-    job = app_bot.job_queue.run_repeating(scheduled_meme_post, interval=post_interval_minutes * 60, first=10)
+    # Schedule posting job only if group ID already loaded
+    global job
+    if GROUP_CHAT_ID is not None:
+        job = app_bot.job_queue.run_repeating(
+            scheduled_meme_post,
+            interval=post_interval_minutes * 60,
+            first=10
+        )
+        logger.info("Scheduled meme post job started on startup.")
 
     app_web = web.Application()
     app_web.add_routes([
