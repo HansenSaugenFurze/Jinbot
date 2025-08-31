@@ -173,6 +173,7 @@ statsmodels==0.14.4
 sympy==1.14.0
 tabulate==0.9.0
 terminado==0.18.1
+python-telegram-bot
 textblob==0.19.0
 thinc==8.3.4
 threadpoolctl==3.6.0
