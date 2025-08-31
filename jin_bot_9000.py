@@ -40,15 +40,12 @@ recent_memes: deque = deque(maxlen=RECENT_MEMES_MAX)
 post_interval_minutes = 10
 job = None
 
-# Likes storage keyed by meme filename
 LIKE_TRACKER: Dict[str, Dict[int, str]] = defaultdict(dict)
 LIKES_FILE = MEME_DIR / "likes.json"
 
-# File to save persistent group chat id
 GROUP_ID_FILE = Path("group_id.txt")
 GROUP_CHAT_ID: Optional[int] = None
 
-# Try to load group ID from env first for immediate setting
 GROUP_CHAT_ID_ENV = os.getenv("GROUP_CHAT_ID")
 if GROUP_CHAT_ID_ENV:
     try:
@@ -381,13 +378,10 @@ async def main_async():
 
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Debug: log all updates
     app_bot.add_handler(MessageHandler(filters.ALL, log_all_updates), group=-1)
 
-    # Minimal start command
     app_bot.add_handler(CommandHandler("start", start))
 
-    # Existing handlers
     app_bot.add_handler(MessageHandler(filters.ChatType.GROUP | filters.ChatType.SUPERGROUP, detect_and_save_group_id), group=0)
     app_bot.add_handler(CommandHandler("setinterval", set_interval))
     app_bot.add_handler(CommandHandler("add", add_meme))
@@ -402,6 +396,7 @@ async def main_async():
         web.get('/', handle_http_request),
         web.get('/send_meme', handle_send_meme_request),
     ])
+
     port = int(os.getenv("PORT", 10000))
     runner = web.AppRunner(app_web)
     await runner.setup()
