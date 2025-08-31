@@ -18,4 +18,4 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-CMD ["python", "your_main_script.py"]
+CMD ["python", "jin_bot_9000.py"]
