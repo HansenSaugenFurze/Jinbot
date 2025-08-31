@@ -135,7 +135,7 @@ async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user = update.effective_user
     try:
         member = await context.bot.get_chat_member(chat_id, user.id)
-    except:
+    except Exception:
         await update.effective_message.reply_text("Failed to check admin status.")
         return
     if member.status not in ('administrator', 'creator'):
@@ -149,7 +149,8 @@ async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.effective_message.reply_text("Please choose an interval between 1 and 60 minutes.")
         return
     post_interval_minutes = minutes
-    job.schedule_removal()
+    if job:
+        job.schedule_removal()
     job = context.job_queue.run_repeating(scheduled_meme_post, interval=post_interval_minutes * 60, first=5)
     await update.effective_message.reply_text(f"✅ Posting interval updated to every {post_interval_minutes} minutes.")
 
@@ -159,7 +160,7 @@ async def add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
-    except:
+    except Exception:
         await message.reply_text("Failed to verify admin status.")
         return
     if member.status not in ('administrator', 'creator'):
@@ -207,4 +208,5 @@ async def main() -> None:
     await app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
