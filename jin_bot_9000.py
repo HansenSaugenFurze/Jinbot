@@ -14,13 +14,23 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 import os
 import asyncio
 from aiohttp import web
+import logging
+
+# Configure logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 BOT_TOKEN: str = os.getenv("TELEGRAM_TOKEN")
-GROUP_CHAT_ID: int = -4897881939
+if not BOT_TOKEN or BOT_TOKEN.startswith("PASTE_") or BOT_TOKEN == "":
+    logger.error("❌ Please set your BOT_TOKEN in the TELEGRAM_TOKEN environment variable!")
+    exit(1)
+
 MEME_DIR: Path = Path(os.getenv("MEME_DIR", "memes"))
 MEME_FILES: List[Path] = []
 CURRENT_INDEX: int = 0
@@ -30,9 +40,13 @@ recent_memes: deque = deque(maxlen=RECENT_MEMES_MAX)
 post_interval_minutes = 10
 job = None
 
-# Likes storage: key by meme filename to persist likes across reposts
+# Likes storage keyed by meme filename
 LIKE_TRACKER: Dict[str, Dict[int, str]] = defaultdict(dict)
 LIKES_FILE = MEME_DIR / "likes.json"
+
+# File to save persistent group chat id
+GROUP_ID_FILE = Path("group_id.txt")
+GROUP_CHAT_ID: Optional[int] = None
 
 
 def load_memes() -> None:
@@ -46,11 +60,10 @@ def save_likes() -> None:
     try:
         if not MEME_DIR.exists():
             MEME_DIR.mkdir(parents=True, exist_ok=True)
-        # Convert defaultdict to normal dict for JSON serialization
         with open(LIKES_FILE, "w") as f:
             json.dump({meme: likes for meme, likes in LIKE_TRACKER.items()}, f)
     except Exception as e:
-        print(f"❌ Error saving likes: {e}")
+        logger.error(f"❌ Error saving likes: {e}")
 
 
 def load_likes() -> None:
@@ -61,10 +74,29 @@ def load_likes() -> None:
                 data = json.load(f)
                 LIKE_TRACKER = defaultdict(dict, {str(k): v for k, v in data.items()})
         except Exception as e:
-            print(f"⚠️ Error loading likes data, starting fresh: {e}")
+            logger.warning(f"⚠️ Error loading likes data, starting fresh: {e}")
             LIKE_TRACKER = defaultdict(dict)
     else:
         LIKE_TRACKER = defaultdict(dict)
+
+
+def save_group_id(group_id: int) -> None:
+    try:
+        with open(GROUP_ID_FILE, "w") as f:
+            f.write(str(group_id))
+    except Exception as e:
+        logger.error(f"❌ Error saving group chat ID: {e}")
+
+
+def load_group_id() -> Optional[int]:
+    if GROUP_ID_FILE.exists():
+        try:
+            with open(GROUP_ID_FILE, "r") as f:
+                return int(f.read().strip())
+        except Exception as e:
+            logger.warning(f"⚠️ Error loading group chat ID: {e}")
+            return None
+    return None
 
 
 def next_meme(randomize: bool = False) -> Optional[Path]:
@@ -86,7 +118,6 @@ def next_meme(randomize: bool = False) -> Optional[Path]:
 
 
 def create_keyboard(meme_filename: str) -> InlineKeyboardMarkup:
-    # Embed the meme filename in callback_data to track likes per meme file
     keyboard = [
         [
             InlineKeyboardButton("❤️", callback_data=f"LIKE_heart|{meme_filename}"),
@@ -184,12 +215,21 @@ async def handle_button_press(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def scheduled_meme_post(context: ContextTypes.DEFAULT_TYPE) -> None:
+    global GROUP_CHAT_ID
+    if GROUP_CHAT_ID is None:
+        logger.warning("Group chat ID not set; skipping scheduled post.")
+        return
     await send_meme(GROUP_CHAT_ID, context)
 
 
 async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    global post_interval_minutes, job
+    global post_interval_minutes, job, GROUP_CHAT_ID
     chat_id = update.effective_chat.id
+    if GROUP_CHAT_ID is None:
+        GROUP_CHAT_ID = chat_id
+        save_group_id(GROUP_CHAT_ID)
+        logger.info(f"Group chat ID set to {GROUP_CHAT_ID} by /setinterval command.")
+
     user = update.effective_user
     try:
         member = await context.bot.get_chat_member(chat_id, user.id)
@@ -214,9 +254,16 @@ async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
+    global GROUP_CHAT_ID
     chat = update.effective_chat
     message = update.effective_message
+
+    if GROUP_CHAT_ID is None:
+        GROUP_CHAT_ID = chat.id
+        save_group_id(GROUP_CHAT_ID)
+        logger.info(f"Group chat ID set to {GROUP_CHAT_ID} by /add command.")
+
+    user = update.effective_user
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
     except Exception:
@@ -251,28 +298,41 @@ async def add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await message.reply_text("✅ Added successfully!")
 
 
+async def detect_and_save_group_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global GROUP_CHAT_ID
+    if GROUP_CHAT_ID is None and update.effective_chat.type in ('group', 'supergroup'):
+        GROUP_CHAT_ID = update.effective_chat.id
+        save_group_id(GROUP_CHAT_ID)
+        logger.info(f"Detected and saved group chat ID: {GROUP_CHAT_ID}")
+
+
 async def handle_http_request(request: web.Request) -> web.Response:
     return web.Response(text="Jin_Bot_9000 is running")
 
 
 async def main_async():
-    global job
-    print("🤖 Starting Jin_Bot_9000...")
+    global job, GROUP_CHAT_ID
+    logger.info("🤖 Starting Jin_Bot_9000...")
     load_memes()
     load_likes()
+    GROUP_CHAT_ID = load_group_id()
+    if GROUP_CHAT_ID:
+        logger.info(f"Loaded saved group chat ID: {GROUP_CHAT_ID}")
+
     if not MEME_FILES:
-        print("⚠️ Warning: No meme files found! Add some images to the 'memes' folder.")
-    if not BOT_TOKEN or BOT_TOKEN.startswith("PASTE_") or BOT_TOKEN == "":
-        print("❌ Please set your BOT_TOKEN in the environment variable TELEGRAM_TOKEN! Get your token from @BotFather in Telegram.")
-        exit(1)
+        logger.warning("⚠️ No meme files found! Add some images to the 'memes' folder.")
 
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Detect group chat ID on any message from a group (only once)
+    app_bot.add_handler(MessageHandler(filters.ChatType.GROUP | filters.ChatType.SUPERGROUP, detect_and_save_group_id), group=0)
+
     app_bot.add_handler(CommandHandler("setinterval", set_interval))
     app_bot.add_handler(CommandHandler("add", add_meme))
     app_bot.add_handler(CallbackQueryHandler(handle_button_press))
     job = app_bot.job_queue.run_repeating(scheduled_meme_post, interval=post_interval_minutes * 60, first=10)
 
-    # Setup aiohttp web server for Render port binding
+    # Setup aiohttp webserver for Render port binding
     app_web = web.Application()
     app_web.add_routes([web.get('/', handle_http_request)])
 
@@ -281,17 +341,16 @@ async def main_async():
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    print(f"✅ HTTP server started on port {port}")
+    logger.info(f"✅ HTTP server started on port {port}")
 
     await app_bot.initialize()
     await app_bot.start()
-    print("✅ Telegram bot started")
+    logger.info("✅ Telegram bot started")
 
-    # Keep running until interrupted
     try:
         await asyncio.Event().wait()
     except (asyncio.CancelledError, KeyboardInterrupt):
-        print("Shutting down...")
+        logger.info("Shutting down...")
     finally:
         await app_bot.stop()
         await runner.cleanup()
