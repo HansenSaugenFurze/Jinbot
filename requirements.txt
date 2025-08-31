@@ -213,4 +213,4 @@ more-itertools==10.3.0
 tomli==2.0.1
 typeguard==4.3.0
 wheel==0.45.1
-zipp==3.19.2]
+zipp==3.19.2
