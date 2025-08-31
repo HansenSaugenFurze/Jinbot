@@ -306,7 +306,6 @@ async def detect_and_save_group_id(update: Update, context: ContextTypes.DEFAULT
 
 
 async def get_group_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Command to reply with the current chat's group ID, useful for debugging and manual saving."""
     chat = update.effective_chat
     await update.message.reply_text(f"This chat's ID is: {chat.id}")
     global GROUP_CHAT_ID
@@ -317,7 +316,6 @@ async def get_group_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def init_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Manually initialize and save the current group's chat ID."""
     global GROUP_CHAT_ID
     chat = update.effective_chat
     if chat.type not in ("group", "supergroup"):
@@ -346,7 +344,6 @@ async def handle_http_request(request: web.Request) -> web.Response:
 
 
 async def handle_send_meme_request(request: web.Request) -> web.Response:
-    """HTTP route to trigger sending a meme to the saved group."""
     global GROUP_CHAT_ID
     app = request.app["telegram_app"]
     if GROUP_CHAT_ID is None:
@@ -356,9 +353,13 @@ async def handle_send_meme_request(request: web.Request) -> web.Response:
     return web.Response(text="Meme sent to group.")
 
 
-# Debug handler to log every received update (very verbose)
-async def log_updates(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(f"Update received: {update}")
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /start in chat {update.effective_chat.id} ({update.effective_chat.type})")
+    await update.message.reply_text("🤖 Jin_Bot_9000 is alive and listening!")
 
 
 async def main_async():
@@ -377,10 +378,13 @@ async def main_async():
 
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Add debugging handler for all messages to log them (can be removed later)
-    app_bot.add_handler(MessageHandler(filters.ALL, log_updates), group=-1)
+    # Debug: log all updates
+    app_bot.add_handler(MessageHandler(filters.ALL, log_all_updates), group=-1)
 
-    # Command and message handlers
+    # Minimal start command
+    app_bot.add_handler(CommandHandler("start", start))
+
+    # Existing handlers
     app_bot.add_handler(MessageHandler(filters.ChatType.GROUP | filters.ChatType.SUPERGROUP, detect_and_save_group_id), group=0)
     app_bot.add_handler(CommandHandler("setinterval", set_interval))
     app_bot.add_handler(CommandHandler("add", add_meme))
@@ -406,6 +410,8 @@ async def main_async():
 
     await app_bot.initialize()
     await app_bot.start()
+    await app_bot.updater.start_polling()
+
     logger.info("✅ Telegram bot started")
 
     await send_startup_message(app_bot)
@@ -415,6 +421,7 @@ async def main_async():
     except (asyncio.CancelledError, KeyboardInterrupt):
         logger.info("Shutting down...")
     finally:
+        await app_bot.updater.stop_polling()
         await app_bot.stop()
         await runner.cleanup()
 
