@@ -15,8 +15,9 @@ from telegram.ext import (
     ContextTypes,
 )
 import os
+import asyncio
 
-BOT_TOKEN: str = "TELEGRAM_TOKEN"
+BOT_TOKEN: str = os.getenv("TELEGRAM_TOKEN")
 GROUP_CHAT_ID: int = -4897881939
 MEME_DIR: Path = Path("memes")
 MEME_FILES: List[Path] = []
@@ -189,21 +190,21 @@ async def add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     load_memes()
     await message.reply_text("✅Added successfully!")
 
-def main() -> None:
+async def main() -> None:
     global job
     print("🤖 Starting Jin_Bot_9000...")
     load_memes()
     if not MEME_FILES:
         print("⚠️ Warning: No meme files found! Add some images to the 'memes' folder.")
-    if not BOT_TOKEN or BOT_TOKEN.startswith("PASTE_"):
-        print("❌ Please set your BOT_TOKEN in the code! Get your token from @BotFather in Telegram.")
+    if not BOT_TOKEN or BOT_TOKEN.startswith("PASTE_") or BOT_TOKEN == "":
+        print("❌ Please set your BOT_TOKEN in the environment variable TELEGRAM_TOKEN! Get your token from @BotFather in Telegram.")
         return
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("setinterval", set_interval))
     app.add_handler(CommandHandler("add", add_meme))
     app.add_handler(CallbackQueryHandler(handle_button_press))
     job = app.job_queue.run_repeating(scheduled_meme_post, interval=post_interval_minutes * 60, first=10)
-    app.run_polling(drop_pending_updates=True)
+    await app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
