@@ -48,7 +48,7 @@ LIKES_FILE = MEME_DIR / "likes.json"
 GROUP_ID_FILE = Path("group_id.txt")
 GROUP_CHAT_ID: Optional[int] = None
 
-# Attempt to load group ID from environment (optional)
+# Try to load group ID from env first for immediate setting
 GROUP_CHAT_ID_ENV = os.getenv("GROUP_CHAT_ID")
 if GROUP_CHAT_ID_ENV:
     try:
